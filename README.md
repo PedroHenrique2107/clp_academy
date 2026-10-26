@@ -59,6 +59,33 @@ USB-C e usar Upload normalmente. Configurações necessárias na IDE:
 `LiquidCrystal_I2C`, então não é necessário configurar nada manualmente antes
 de compilar.
 
+#### Comandos úteis (PlatformIO via CLI)
+
+```
+python -m platformio device list                                # lista as portas COM disponíveis
+python -m platformio run                                         # compila
+python -m platformio run --target upload --upload-port COM5      # grava na placa (ajuste a porta)
+python -m platformio device monitor --port COM5                  # abre o monitor serial (115200)
+```
+
+> Dica: se `python -m platformio device list` não listar nenhuma porta, o
+> Windows não tem o driver USB-serial da placa instalado (chip **CP2102**,
+> aparece como "Outros dispositivos" com erro no Gerenciador de Dispositivos —
+> Código 28). Baixe o **CP210x Universal Windows Driver** em
+> https://www.silabs.com/developer-tools/usb-to-uart-bridge-vcp-drivers,
+> extraia e instale pelo Gerenciador de Dispositivos (botão direito no
+> dispositivo → Atualizar driver → Procurar no meu computador → apontar para
+> a pasta extraída) ou, num terminal **como administrador**:
+> ```
+> pnputil /add-driver "C:\caminho\para\CP210x_Universal_Windows_Driver\silabser.inf" /install
+> ```
+> Depois reconecte o cabo USB; a porta passa a aparecer como "Silicon Labs
+> CP210x USB to UART Bridge (COMx)".
+
+**Teste rápido pelo Monitor Serial** (depois do upload, com o monitor aberto):
+digite `ALL=1` e Enter — os 6 relés devem acionar; `ALL=0` desliga todos; `?`
+mostra o estado atual (`E:101000`).
+
 ## Nota técnica: por que `src/main.cpp` e não um `.ino`
 
 O PlatformIO converte automaticamente arquivos `.ino` para `.cpp` antes de
