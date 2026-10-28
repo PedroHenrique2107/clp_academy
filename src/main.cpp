@@ -7,9 +7,10 @@
  *  - BLE com o serviço "Nordic UART" (NUS): comandos de texto
  *  - LCD I2C (PCF8574) opcional: se não for detectado, o programa segue sem ele
  *
- *  Placa na IDE: "ESP32 Dev Module" (ou DOIT ESP32 DEVKIT V1)
- *  Partition Scheme: "Huge APP (3MB No OTA/1MB SPIFFS)"  <- Wi-Fi + BLE não cabem na partição padrão
- *  Biblioteca: "LiquidCrystal I2C" (Frank de Brabander), pelo Gerenciador de Bibliotecas
+ *  Build/gravação via PlatformIO — platformio.ini já define a placa (esp32dev),
+ *  a partição huge_app.csv (Wi-Fi + BLE não cabem na partição padrão) e a
+ *  biblioteca LiquidCrystal_I2C. Veja o README para os comandos e o fluxo
+ *  equivalente pela Arduino IDE (legado/*.ino).
  *
  *  Comandos BLE (enviar texto, com ou sem quebra de linha):
  *    E3=1   liga a entrada 3          E3=0   desliga a entrada 3
@@ -158,39 +159,14 @@ void iniciarBLE() {
 }
 
 // ======================= SERVIDOR WEB =======================
-const char PAGINA[] PROGMEM = R"rawliteral(
-<!DOCTYPE html><html lang="pt-br"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CLP HF-006</title>
-<style>
- body{font-family:Arial,sans-serif;background:#1e2430;color:#eee;text-align:center;margin:0;padding:20px}
- h1{font-size:22px;margin:6px 0 18px}
- .grade{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:420px;margin:auto}
- button{padding:18px 8px;font-size:18px;border:none;border-radius:10px;color:#fff;background:#4a5263;cursor:pointer}
- button.on{background:#2e9e5b}
- .linha{max-width:420px;margin:16px auto 0;display:flex;gap:12px}
- .linha button{flex:1;background:#6b4a4a}
- #st{margin-top:14px;font-size:13px;color:#9aa}
-</style></head><body>
-<h1>CLP HF-006 &middot; Entradas virtuais</h1>
-<div class="grade" id="g"></div>
-<div class="linha"><button onclick="cmd('all',1)">Ligar todas</button><button onclick="cmd('all',0)">Desligar todas</button></div>
-<div id="st">conectando...</div>
-<script>
-const g=document.getElementById('g');
-for(let i=1;i<=6;i++){const b=document.createElement('button');b.id='e'+i;b.textContent='Entrada '+i;b.onclick=()=>cmd(i,'t');g.appendChild(b);}
-function mostra(s){for(let i=1;i<=6;i++){const b=document.getElementById('e'+i);const on=s[i-1]=='1';
- b.className=on?'on':'';b.textContent='Entrada '+i+' / Relé '+i+(on?' : ON':' : OFF');}
- document.getElementById('st').textContent='BLE: '+(s.ble?'conectado':'livre')+' · atualizado '+new Date().toLocaleTimeString();}
-async function cmd(e,v){try{const r=await fetch('/set?e='+e+'&v='+v);ler(await r.json());}catch(x){}}
-function ler(j){const s=j.e.split('');s.ble=j.ble;mostra(s);}
-async function poll(){try{const r=await fetch('/estado');ler(await r.json());}catch(x){document.getElementById('st').textContent='sem conexão';}}
-poll();setInterval(poll,1000);
-</script></body></html>
-)rawliteral";
+// HTML/CSS/JS da página em arquivo separado (src/web/index_html.h) só para
+// organização/syntax highlighting no editor; continua compilado junto no
+// mesmo firmware (PROGMEM), deploy em um único passo, igual antes.
+#include "web/index_html.h"
 
 void enviarEstadoJSON() {
-  String json = "{\"e\":\"" + estadoTexto() + "\",\"ble\":" + (bleConectado ? "true" : "false") + "}";
+  String json = "{\"e\":\"" + estadoTexto() + "\",\"ble\":" + (bleConectado ? "true" : "false") +
+                ",\"w\":" + String(WiFi.softAPgetStationNum()) + "}";
   server.send(200, "application/json", json);
 }
 
