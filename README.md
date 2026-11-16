@@ -30,6 +30,110 @@ Bluetooth Low Energy (serviço Nordic UART).
 | `src/main.cpp` | Mesmo firmware, adaptado para compilar via **PlatformIO/VSCode** (veja a nota técnica abaixo sobre por que é `.cpp` e não `.ino`). |
 | `platformio.ini` | Configuração do projeto PlatformIO (placa, partição de memória, bibliotecas). |
 
+## Preparando o ambiente do zero (VSCode + PlatformIO)
+
+Passo a passo para quem está com um computador Windows limpo. Ao final, você
+terá compilado e gravado o firmware na placa e validado tudo pelo Monitor Serial.
+
+### 1. Instalar os pré-requisitos
+
+| Ferramenta | Para quê | Download |
+|---|---|---|
+| **Visual Studio Code** | Editor onde o PlatformIO roda | https://code.visualstudio.com/download |
+| **Python 3.8+** | O PlatformIO Core precisa dele | https://www.python.org/downloads/ |
+| **Git** (opcional, para clonar o repo) | Baixar o projeto | https://git-scm.com/downloads |
+
+> **Importante (Python):** no instalador, marque a caixa **"Add python.exe to
+> PATH"** antes de clicar em *Install Now*. Se esquecer, o PlatformIO não
+> encontra o Python.
+
+Confirme no PowerShell (feche e reabra o terminal após instalar):
+
+```
+python --version     # deve mostrar Python 3.x
+git --version        # deve mostrar a versão do Git
+```
+
+### 2. Instalar a extensão PlatformIO IDE no VSCode
+
+1. Abra o VSCode e clique no ícone de **Extensões** (`Ctrl+Shift+X`).
+2. Pesquise por **PlatformIO IDE** (autor: PlatformIO) e clique em **Install**.
+   Link direto: https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide
+3. Aguarde a instalação do PlatformIO Core (aparece uma notificação no canto
+   inferior direito; pode levar alguns minutos na primeira vez, pois baixa
+   ferramentas e cria um ambiente virtual Python).
+4. Quando terminar, clique em **Reload Now** / reinicie o VSCode. Deve aparecer
+   o ícone de formiga 👽 (PlatformIO) na barra lateral e a barra azul/inferior
+   com os botões ✓ → 🔌.
+
+Documentação oficial: https://docs.platformio.org/en/latest/integration/ide/vscode.html
+
+### 3. Baixar o projeto
+
+```
+git clone https://github.com/<seu-usuario>/clp_academy.git
+cd clp_academy
+code .
+```
+
+(ou baixe o ZIP pelo GitHub, extraia e use **File → Open Folder** no VSCode).
+Ao abrir a pasta, o PlatformIO detecta o `platformio.ini` e, na primeira vez,
+baixa sozinho a plataforma `espressif32`, o framework Arduino e a biblioteca
+`LiquidCrystal_I2C` (precisa de internet; leva alguns minutos).
+
+### 4. Instalar o driver USB da placa (Windows)
+
+A HF-006 usa o chip **CP2102**. Conecte o ESP32 por USB-C (use um cabo **com
+dados**, não só de carga) e abra o PowerShell:
+
+```
+python -m platformio device list
+```
+
+- Se aparecer uma porta `COMx`, o driver já está ok — pule para o passo 5.
+- Se **não** aparecer nada, instale o driver:
+  - **CP210x** (mais comum): https://www.silabs.com/developer-tools/usb-to-uart-bridge-vcp-drivers
+  - Se a sua placa for outra revisão com chip **CH340/CH341**:
+    https://www.wch-ic.com/downloads/CH341SER_EXE.html
+  - Instruções detalhadas de instalação na dica logo abaixo, na seção
+    "Comandos úteis".
+
+Depois de instalar, reconecte o cabo e rode `device list` de novo. No
+Gerenciador de Dispositivos deve aparecer em **Portas (COM e LPT)**.
+
+### 5. Testar o ambiente (checklist)
+
+Faça na ordem; se um item falhar, corrija antes de seguir.
+
+| # | Teste | Como | Resultado esperado |
+|---|---|---|---|
+| 1 | PlatformIO instalado | `python -m platformio --version` (ou `pio --version` no terminal do PlatformIO) | Mostra `PlatformIO Core, version 6.x` |
+| 2 | Projeto reconhecido | Abrir a pasta no VSCode | Barra inferior mostra `env:esp32dev` |
+| 3 | Compilação | Botão ✓ **Build** ou `python -m platformio run` | Termina com `[SUCCESS]` |
+| 4 | Placa detectada | `python -m platformio device list` | Lista uma porta `COMx` (CP210x) |
+| 5 | Gravação | Botão → **Upload** ou `python -m platformio run --target upload` | `[SUCCESS]` e `Hard resetting via RTS pin...` |
+| 6 | Monitor Serial | Botão 🔌 **Monitor** ou `python -m platformio device monitor` | Aparecem as mensagens de boot a 115200 baud |
+| 7 | Relés | No monitor, digite `ALL=1` + Enter | Os 6 relés acionam; `ALL=0` desliga; `?` responde `E:000000` |
+| 8 | Wi-Fi | No celular/PC, conectar à rede `CLP-HF006` (senha `clp12345`) | Portal cativo abre; senão acessar `http://192.168.4.1` |
+| 9 | BLE | App de BLE (ex.: **nRF Connect** ou **Serial Bluetooth Terminal**) → conectar na placa → enviar `E1=1` | Relé 1 aciona e responde `E:100000` |
+
+Links dos apps de teste BLE:
+- nRF Connect (Android): https://play.google.com/store/apps/details?id=no.nordicsemi.android.mcp
+- nRF Connect (iOS): https://apps.apple.com/app/nrf-connect-for-mobile/id1054362403
+- Serial Bluetooth Terminal (Android, modo BLE): https://play.google.com/store/apps/details?id=de.kai_morich.serial_bluetooth_terminal
+
+### 6. Problemas comuns
+
+| Sintoma | Causa provável / solução |
+|---|---|
+| `'python' não é reconhecido` | Python não está no PATH — reinstale marcando "Add python.exe to PATH" |
+| `No module named platformio` ao usar `python -m platformio` | A extensão instala o Core em um ambiente próprio. Use o terminal do PlatformIO no VSCode (ícone 👽 → *PIO Home* / *New Terminal*) e rode `pio run`, ou instale global: `python -m pip install -U platformio` |
+| Build falha baixando pacotes | Sem internet / proxy / antivírus bloqueando. Tente novamente; confira a conexão |
+| `Failed to connect to ESP32: Wrong boot mode` / `Timed out waiting for packet header` | Segure o botão **BOOT** da placa quando aparecer `Connecting...` no upload e solte após iniciar a gravação |
+| `could not open port 'COMx'` / acesso negado | Outro programa usando a porta (Monitor Serial aberto, Arduino IDE). Feche-o e tente de novo |
+| Porta COM não aparece | Driver não instalado ou cabo só de carga — veja o passo 4 |
+| Erro de espaço/partição no build | Confirme que o `platformio.ini` tem `board_build.partitions = huge_app.csv` |
+
 ## Gravando o firmware
 
 Hoje existem dois caminhos possíveis, equivalentes em resultado:
