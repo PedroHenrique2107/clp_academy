@@ -44,6 +44,7 @@ const char PAGINA[] PROGMEM = R"rawliteral(
   color-scheme:light;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);padding:16px 16px 28px}
 button{font:inherit;color:inherit}
 .page{max-width:460px;margin:0 auto}
@@ -224,11 +225,10 @@ function enviar(e,v){
 function poll(){
   fetch('/estado').then(function(r){return r.json();}).then(aoReceber).catch(registrarFalha);
 }
-// O WebServer do ESP32 atende uma requisição por vez; sondagens de portal cativo do
-// próprio celular (/generate_204 etc.) às vezes colidem com o polling e derrubam UM
-// request isolado. Só marca offline depois de falhas seguidas, pra não piscar o banner
-// à toa enquanto tudo continua funcionando (relés, etc.).
-var falhasSeguidas=0,OFFLINE_APOS=2;
+// O WebServer do ESP32 atende uma requisição por vez, então uma chamada isolada pode
+// falhar por colisão com outra (ex.: sondagem de portal cativo do celular). Só marca
+// offline depois de várias falhas seguidas (~4s), não na primeira.
+var falhasSeguidas=0,OFFLINE_APOS=4;
 function registrarFalha(){
   falhasSeguidas++;
   if(falhasSeguidas>=OFFLINE_APOS){offline=true;render(last);}
