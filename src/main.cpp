@@ -6,6 +6,8 @@
  *    com portal cativo: a página abre sozinha ao conectar na rede
  *  - BLE com o serviço "Nordic UART" (NUS): comandos de texto
  *  - LCD I2C (PCF8574) opcional: se não for detectado, o programa segue sem ele
+ *  - Campo "Descrição" na página: o texto (até 120 caracteres, sem acentos) rola uma
+ *    vez na linha 2 do LCD 20x2, no lugar do OUT, e depois o OUT volta
  *
  *  Build/gravação via PlatformIO — platformio.ini já define a placa (esp32dev),
  *  a partição huge_app.csv (Wi-Fi + BLE não cabem na partição padrão) e a
@@ -158,6 +160,65 @@ void iniciarBLE() {
   Serial.println("BLE anunciando como \"" + String(BLE_NOME) + "\"");
 }
 
+// ======================= MENSAGEM NO LCD =======================
+// Texto digitado na página: rola uma vez na linha 2 do LCD, no lugar do OUT; a linha 1
+// (IN) fica fixa e, ao terminar, a linha 2 volta a mostrar o OUT/W:.
+// Tudo roda na task do loop() (a rota /msg é atendida por ele), sem seção crítica.
+const size_t   MSG_MAX      = 120;    // caracteres úteis (a página limita igual)
+const uint8_t  LCD_COLUNAS  = 20;     // módulo LCD 20x2
+const uint8_t  LCD_LINHAS   = 2;
+const uint16_t MSG_PASSO_MS = 350;    // tempo entre deslocamentos de 1 coluna
+
+String   msgTexto;                    // vazio = sem mensagem, linha 2 mostra o OUT/W:
+uint16_t msgPos = 0;
+uint32_t msgUltimoPasso = 0;
+
+// O HD44780 não tem acentos: troca por a letra base e deixa só ASCII imprimível.
+String semAcento(const String& in) {
+  String out;
+  for (size_t i = 0; i < in.length(); i++) {
+    uint8_t c = in[i];
+    if (c >= 32 && c < 127) { out += (char)c; continue; }
+    if (c < 0x80) { out += ' '; continue; }                  // tab, quebra de linha etc.
+    if (c == 0xC3 && i + 1 < in.length()) {                   // Latin-1 em UTF-8 (á, ç, õ...)
+      uint8_t d = in[++i];
+      char r = '?';
+      if      ((d >= 0x80 && d <= 0x85) || (d >= 0xA0 && d <= 0xA5)) r = d < 0xA0 ? 'A' : 'a';
+      else if (d == 0x87 || d == 0xA7)                              r = d == 0x87 ? 'C' : 'c';
+      else if ((d >= 0x88 && d <= 0x8B) || (d >= 0xA8 && d <= 0xAB)) r = d < 0xA0 ? 'E' : 'e';
+      else if ((d >= 0x8C && d <= 0x8F) || (d >= 0xAC && d <= 0xAF)) r = d < 0xA0 ? 'I' : 'i';
+      else if (d == 0x91 || d == 0xB1)                              r = d == 0x91 ? 'N' : 'n';
+      else if ((d >= 0x92 && d <= 0x96) || (d >= 0xB2 && d <= 0xB6)) r = d < 0xA0 ? 'O' : 'o';
+      else if ((d >= 0x99 && d <= 0x9C) || (d >= 0xB9 && d <= 0xBC)) r = d < 0xA0 ? 'U' : 'u';
+      out += r;
+      continue;
+    }
+    if (c >= 0xC0) out += '?';                                // outro caractere multibyte: 1 só '?'
+  }                                                           // (bytes de continuação são descartados)
+  return out;
+}
+
+void definirMensagem(String bruto) {          // texto vazio cancela a mensagem
+  if (bruto.length() > MSG_MAX * 4) bruto = bruto.substring(0, MSG_MAX * 4);   // UTF-8: até 4 bytes/char
+  String t = semAcento(bruto);
+  t.trim();
+  if (t.length() > MSG_MAX) t = t.substring(0, MSG_MAX);
+  msgTexto = t;
+  msgPos = 0;
+  msgUltimoPasso = 0;                         // primeiro passo já no próximo loop()
+}
+
+// Janela de LCD_COLUNAS sobre "espaços + texto + espaços": o texto entra pela direita,
+// atravessa a linha e sai pela esquerda.
+String linhaMensagem() {
+  String s;
+  for (uint8_t i = 0; i < LCD_COLUNAS; i++) {
+    int idx = (int)msgPos + i - LCD_COLUNAS;
+    s += (idx >= 0 && idx < (int)msgTexto.length()) ? msgTexto[idx] : ' ';
+  }
+  return s;
+}
+
 // ======================= SERVIDOR WEB =======================
 // HTML/CSS/JS da página em arquivo separado (src/web/index_html.h) só para
 // organização/syntax highlighting no editor; continua compilado junto no
@@ -166,7 +227,8 @@ void iniciarBLE() {
 
 void enviarEstadoJSON() {
   String json = "{\"e\":\"" + estadoTexto() + "\",\"ble\":" + (bleConectado ? "true" : "false") +
-                ",\"w\":" + String(WiFi.softAPgetStationNum()) + "}";
+                ",\"w\":" + String(WiFi.softAPgetStationNum()) +
+                ",\"m\":" + (msgTexto.length() ? "true" : "false") + "}";
   server.send(200, "application/json", json);
 }
 
@@ -182,6 +244,11 @@ void iniciarWeb() {
     String e = server.arg("e"), v = server.arg("v");
     if (e == "all") setTodas(v == "1");
     else            setEntrada(e.toInt() - 1, v == "t" ? 2 : v.toInt());
+    enviarEstadoJSON();
+  });
+  server.on("/msg", []() {                     // /msg?t=texto  (t vazio cancela)
+    definirMensagem(server.arg("t"));
+    Serial.println("MSG: \"" + msgTexto + "\"");
     enviarEstadoJSON();
   });
   // Portal cativo: o celular testa endereços como /generate_204 (Android),
@@ -204,7 +271,7 @@ void iniciarLCD() {
   for (uint8_t end : enderecos) {
     Wire.beginTransmission(end);
     if (Wire.endTransmission() == 0) {
-      lcd = new LiquidCrystal_I2C(end, 16, 2);
+      lcd = new LiquidCrystal_I2C(end, LCD_COLUNAS, LCD_LINHAS);
       lcd->init();
       lcd->backlight();
       Serial.printf("LCD encontrado em 0x%02X\n", end);
@@ -217,10 +284,15 @@ void iniciarLCD() {
 void atualizarLCD() {
   if (!lcd) return;
   String e = estadoTexto();
+  String w = String(WiFi.softAPgetStationNum());
+  String l0 = "IN  " + e + (bleConectado ? " BLE" : "");
+  String l1 = msgTexto.length() ? linhaMensagem() : "OUT " + e + " W:" + w;   // a mensagem toma o lugar do OUT
+  while (l0.length() < LCD_COLUNAS) l0 += ' ';  // completa a linha: apaga sobra da mensagem/status anterior
+  while (l1.length() < LCD_COLUNAS) l1 += ' ';
   lcd->setCursor(0, 0);
-  lcd->print("IN  " + e + (bleConectado ? " BLE" : "    "));
+  lcd->print(l0);
   lcd->setCursor(0, 1);
-  lcd->print("OUT " + e + " W:" + String(WiFi.softAPgetStationNum()) + " ");
+  lcd->print(l1);
 }
 
 // ======================= SETUP / LOOP =======================
@@ -268,6 +340,15 @@ void loop() {
     bleReiniciarAnuncio = false;
     delay(300);
     BLEDevice::startAdvertising();
+  }
+
+  if (msgTexto.length() && millis() - msgUltimoPasso >= MSG_PASSO_MS) {   // rolagem da mensagem
+    msgUltimoPasso = millis();
+    atualizarLCD();
+    if (++msgPos > msgTexto.length() + LCD_COLUNAS) {   // saiu toda pela esquerda: volta ao status
+      msgTexto = "";
+      atualizarLCD();
+    }
   }
 
   if (millis() - ultimoLCD > 1000) {            // LCD: na mudança e a cada 1 s (contador Wi-Fi)

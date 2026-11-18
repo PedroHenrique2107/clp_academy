@@ -8,8 +8,8 @@ Bluetooth Low Energy (serviço Nordic UART).
 
 - Placa: ESP32 Dev Module (ou DOIT ESP32 DEVKIT V1)
 - Relés: pinos `4, 16, 17, 18, 19, 23` (um por entrada virtual)
-- LCD I2C (PCF8574) opcional nos pinos SDA `21` / SCL `22` — se não detectado
-  no boot, o firmware segue sem ele
+- LCD I2C 20x2 (PCF8574) opcional nos pinos SDA `21` / SCL `22` — se não
+  detectado no boot, o firmware segue sem ele
 - Conexão com o PC: USB-C
 
 ## Funcionalidades
@@ -21,6 +21,12 @@ Bluetooth Low Energy (serviço Nordic UART).
   `E3=T` (inverte), `ALL=0` / `ALL=1`, `?` (consulta estado). Resposta no
   formato `E:101000` (entrada 1 a 6)
 - Os mesmos comandos também funcionam pelo Monitor Serial (115200 baud)
+- **Descrição no LCD:** a página tem um campo de texto (até 120 caracteres) e o
+  botão **Mandar**; o texto rola uma vez na linha 2 do LCD, no lugar do `OUT`
+  (o `IN` da linha 1 fica fixo), e depois o `OUT` volta. **Limpar**
+  cancela a mensagem. O display
+  (HD44780) não tem acentos, então o firmware troca por a letra base
+  (`ação` → `acao`). Rota usada: `/msg?t=<texto>`
 
 ## Estrutura do repositório
 
