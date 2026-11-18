@@ -2,7 +2,7 @@
 
 #include <Arduino.h>  // PROGMEM
 
-// Página servida em "/": espelha o LCD 16x2 (fonte 5x7 do HD44780 desenhada em
+// Página servida em "/": espelha o LCD 20x2 (fonte 5x7 do HD44780 desenhada em
 // <canvas>), mostra os 6 relés (K1..K6) e o status Wi-Fi/BLE. Consome /estado
 // (polling a cada 1s, no mesmo ritmo do LCD físico) e /set (otimista: a UI já
 // muda ao toque e se corrige com a resposta do servidor). Só fontes do
@@ -97,6 +97,17 @@ button.chip{appearance:none;-webkit-appearance:none;cursor:pointer}
 .btn-off.arming .fill{width:100%;transition:width 1s linear}
 .btn-off span{position:relative}
 .hint{margin-top:7px;font-size:11px;color:var(--faint);text-align:center}
+.msg-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:14px}
+.msg-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.msg-live{font-family:var(--mono);font-size:11px;color:var(--accent)}
+.msg-row{display:flex;gap:8px}
+.msg-in{flex:1;min-width:0;background:var(--raised);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:var(--mono);font-size:13px}
+.msg-in:focus{outline:2px solid var(--accent);outline-offset:1px}
+.msg-in::placeholder{color:var(--faint)}
+.btn-send{color:var(--accent);border-color:var(--accent);padding:12px 14px}
+.btn-clear{padding:12px 12px}
+.msg-foot{display:flex;justify-content:space-between;gap:8px;margin-top:7px;font-size:11px;color:var(--faint)}
+.msg-foot .mono{flex:none}
 </style></head><body>
 <div class="page">
 <header>
@@ -112,9 +123,9 @@ button.chip{appearance:none;-webkit-appearance:none;cursor:pointer}
 </header>
 <div class="offline" id="offline" hidden>&#9679; Sem resposta do CLP. Tentando reconectar...</div>
 <section class="lcd-card">
-  <div class="lcd-head"><span class="label">Display LCD 16&times;2</span><span class="mono" id="lcdTick">espelho em tempo real</span></div>
+  <div class="lcd-head"><span class="label">Display LCD 20&times;2</span><span class="mono" id="lcdTick">espelho em tempo real</span></div>
   <div class="lcd-module">
-    <canvas id="lcd" width="518" height="116"></canvas>
+    <canvas id="lcd" width="642" height="116"></canvas>
     <span class="lcd-stale" id="lcdStale" hidden>ULTIMO ESTADO</span>
   </div>
 </section>
@@ -126,6 +137,17 @@ button.chip{appearance:none;-webkit-appearance:none;cursor:pointer}
     <button class="btn btn-off" id="allOff"><i class="fill"></i><span>Segure p/ desligar</span></button>
   </div>
   <div class="hint">Toque num modulo para inverter. Para desligar todas, segure por 1s.</div>
+</section>
+<section class="msg-card">
+  <div class="msg-head"><span class="label">Descricao no LCD</span><span class="msg-live" id="msgLive" hidden>&#9679; rolando no LCD</span></div>
+  <form id="msgForm" autocomplete="off">
+    <div class="msg-row">
+      <input class="msg-in" id="msgIn" maxlength="120" placeholder="Digite o texto..." aria-label="Texto para o LCD">
+      <button class="btn btn-send" id="msgSend" type="submit">Mandar</button>
+      <button class="btn btn-clear" id="msgClear" type="button">Limpar</button>
+    </div>
+  </form>
+  <div class="msg-foot"><span id="msgSt">Rola uma vez na linha 2 do LCD, no lugar do OUT. O display nao tem acentos (a vira a).</span><span class="mono" id="msgCount">0/120</span></div>
 </section>
 </div>
 <script>
@@ -159,19 +181,22 @@ var FONT={'0':[14,17,19,21,25,17,14],'1':[4,12,4,4,4,4,14],'2':[14,17,1,2,4,8,31
 'W':[17,17,17,21,21,21,10],':':[0,12,12,0,12,12,0]};
 var canvas=document.getElementById('lcd'),ctx=canvas.getContext('2d');
 var DOT=4,PITCH=5,CELL_W=25,CELL_H=40,GAP_X=6,GAP_Y=8,PAD=14;
+var COLS=20,LINHAS=2,LW=2*PAD+COLS*CELL_W+(COLS-1)*GAP_X,LH=2*PAD+LINHAS*CELL_H+(LINHAS-1)*GAP_Y;
 var dpr=Math.min(window.devicePixelRatio||1,3);
-canvas.width=518*dpr;canvas.height=116*dpr;ctx.scale(dpr,dpr);
+canvas.width=LW*dpr;canvas.height=LH*dpr;ctx.scale(dpr,dpr);
 function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
-function pad16(s){s=s.slice(0,16);while(s.length<16)s+=' ';return s;}
+function padCols(s){s=s.slice(0,COLS);while(s.length<COLS)s+=' ';return s;}
+// Com mensagem ativa a linha 2 do LCD real rola o texto no lugar do OUT; o espelho a deixa
+// em branco porque a rolagem anda a cada 0,35s e a página só sincroniza a cada 1s.
 function linhasLCD(st){
-  var e=st.e,l0=pad16('IN  '+e+(st.ble?' BLE':'    ')),l1=pad16('OUT '+e+' W:'+st.w+' ');
-  return [l0,l1];
+  var e=st.e,l0=padCols('IN  '+e+(st.ble?' BLE':'    '));
+  return [l0,padCols(st.m?'':'OUT '+e+' W:'+st.w)];
 }
 function drawLCD(st){
   var bg=css('--lcd-bg'),off=css('--lcd-off'),on=css('--lcd-on'),glow=css('--lcd-glow');
-  ctx.shadowBlur=0;ctx.fillStyle=bg;ctx.fillRect(0,0,518,116);
+  ctx.shadowBlur=0;ctx.fillStyle=bg;ctx.fillRect(0,0,LW,LH);
   var lines=linhasLCD(st);
-  for(var r=0;r<2;r++){for(var c=0;c<16;c++){
+  for(var r=0;r<LINHAS;r++){for(var c=0;c<COLS;c++){
     var g=FONT[lines[r][c]];
     var x0=PAD+c*(CELL_W+GAP_X),y0=PAD+r*(CELL_H+GAP_Y);
     for(var dy=0;dy<8;dy++){for(var dx=0;dx<5;dx++){
@@ -190,7 +215,7 @@ for(var i=0;i<6;i++){(function(i){
   b.addEventListener('click',function(){enviar(i+1,'t');});
   tilesEl.appendChild(b);tiles.push(b);
 })(i);}
-var last={e:'000000',ble:false,w:0},offline=false,lastGoodDraw=null;
+var last={e:'000000',ble:false,w:0,m:false},offline=false,lastGoodDraw=null;
 function render(st){
   var n=0;
   tiles.forEach(function(t,i){
@@ -208,11 +233,14 @@ function render(st){
   document.getElementById('lcdStale').hidden=!offline;
   document.getElementById('allOn').disabled=offline;
   document.getElementById('allOff').disabled=offline;
+  document.getElementById('msgSend').disabled=offline;
+  document.getElementById('msgClear').disabled=offline;
+  document.getElementById('msgLive').hidden=!st.m||offline;
   if(!offline){drawLCD(st);lastGoodDraw=st;}
 }
 function aoReceber(j){
   falhasSeguidas=0;
-  last={e:j.e,ble:!!j.ble,w:j.w||0};
+  last={e:j.e,ble:!!j.ble,w:j.w||0,m:!!j.m};
   offline=false;render(last);
 }
 function enviar(e,v){
@@ -240,6 +268,20 @@ function desarmar(){clearTimeout(hold);offBtn.classList.remove('arming');}
 offBtn.addEventListener('pointerdown',armar);
 ['pointerup','pointerleave','pointercancel'].forEach(function(ev){offBtn.addEventListener(ev,desarmar);});
 offBtn.addEventListener('contextmenu',function(e){e.preventDefault();});
+var msgIn=document.getElementById('msgIn'),msgSt=document.getElementById('msgSt');
+function enviarMsg(t){
+  if(offline)return;
+  msgSt.textContent='Enviando...';
+  fetch('/msg?t='+encodeURIComponent(t)).then(function(r){return r.json();}).then(function(j){
+    aoReceber(j);
+    msgSt.textContent=t.trim()?'Enviado. Rolando na linha 2 do LCD.':'Mensagem removida do LCD.';
+  }).catch(function(){registrarFalha();msgSt.textContent='Falha ao enviar. Tente de novo.';});
+}
+msgIn.addEventListener('input',function(){document.getElementById('msgCount').textContent=msgIn.value.length+'/120';});
+document.getElementById('msgForm').addEventListener('submit',function(e){e.preventDefault();enviarMsg(msgIn.value);});
+document.getElementById('msgClear').addEventListener('click',function(){
+  msgIn.value='';document.getElementById('msgCount').textContent='0/120';enviarMsg('');
+});
 var tick=0;
 setInterval(function(){
   poll();
